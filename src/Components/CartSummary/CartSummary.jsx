@@ -1,11 +1,12 @@
-import './CartSummary.css';
+// import './CartSummary.css';
 import {useContext, useState} from "react";
 import {AppContext} from "../../context/AppContext.jsx";
 import ReceiptPopup from "../ReceiptPopup/ReceiptPopup.jsx";
-// import {createOrder, deleteOrder} from "../../Service/OrderService.js";
+import StripePaymentModal from "../StripePaymentModal/StripePaymentModal.jsx"; // New component
+import {createOrder, deleteOrder} from "../../Service/OrderService.js";
 import toast from "react-hot-toast";
-// import {createRazorpayOrder, verifyPayment} from "../../Service/PaymentService.js";
-// import {AppConstants} from "../../util/constants.js";
+import {createStripePaymentIntent, verifyPayment} from "../../Service/PaymentService.js";
+import {AppConstants} from "../../Util/constants.js";
 
 const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerName}) => {
     const {cartItems, clearCart} = useContext(AppContext);
@@ -13,6 +14,9 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
     const [isProcessing, setIsProcessing] = useState(false);
     const [orderDetails, setOrderDetails] = useState(null);
     const [showPopup, setShowPopup] = useState(false);
+    const [showStripeModal, setShowStripeModal] = useState(false);
+    const [currentOrder, setCurrentOrder] = useState(null);
+    const [stripeClientSecret, setStripeClientSecret] = useState(null);
 
     const totalAmount = cartItems.reduce((total, item) => total + item.price * item.quantity, 0);
     const tax = totalAmount * 0.01;
@@ -33,14 +37,18 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
         window.print();
     }
 
-    const loadRazorpayScript = () => {
+    const loadStripeScript = () => {
         return new Promise((resolve, reject) => {
+            if (window.Stripe) {
+                resolve(true);
+                return;
+            }
             const script = document.createElement('script');
-            script.src = "https://checkout.razorpay.com/v1/checkout.js";
+            script.src = "https://js.stripe.com/v3/";
             script.onload = () => resolve(true);
             script.onerror = () => resolve(false);
             document.body.appendChild(script);
-        })
+        });
     }
 
     const deleteOrderOnFailure = async (orderId) => {
@@ -62,6 +70,7 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
             toast.error("Your cart is empty");
             return;
         }
+        
         const orderData = {
             customerName,
             phoneNumber: mobileNumber,
@@ -71,57 +80,35 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
             grandTotal,
             paymentMethod: paymentMode.toUpperCase()
         }
+        
         setIsProcessing(true);
         try {
-
             const response = await createOrder(orderData);
             const savedData = response.data;
+            
             if (response.status === 201 && paymentMode === "cash") {
                 toast.success("Cash received");
                 setOrderDetails(savedData);
             } else if (response.status === 201 && paymentMode === "upi") {
-                const razorpayLoaded = await loadRazorpayScript();
-                if (!razorpayLoaded) {
-                    toast.error('Unable to load razorpay');
+                const stripeLoaded = await loadStripeScript();
+                if (!stripeLoaded) {
+                    toast.error('Unable to load Stripe');
                     await deleteOrderOnFailure(savedData.orderId);
                     return;
                 }
 
-                //create razorpay order
-                const razorpayResponse = await createRazorpayOrder({amount: grandTotal, currency: 'INR'});
-                const options = {
-                    key: AppConstants.RAZORPAY_KEY_ID,
-                    amount: razorpayResponse.data.amount,
-                    currency: razorpayResponse.data.currency,
-                    order_id: razorpayResponse.data.id,
-                    name: "My Retail Shop",
-                    description: "Order payment",
-                    handler: async function (response) {
-                        await verifyPaymentHandler(response,  savedData);
-                    },
-                    prefill: {
-                        name: customerName,
-                        contact: mobileNumber
-                    },
-                    theme: {
-                        color: "#3399cc"
-                    },
-                    modal: {
-                        ondismiss: async () => {
-                            await deleteOrderOnFailure(savedData.orderId);
-                            toast.error("Payment cancelled");
-                        }
-                    },
-                };
-                const rzp = new window.Razorpay(options);
-                rzp.on("payment.failed", async (response) => {
-                    await deleteOrderOnFailure(savedData.orderId);
-                    toast.error("Payment failed");
-                    console.error(response.error.description);
+                // Create Stripe PaymentIntent
+                const stripeResponse = await createStripePaymentIntent({
+                    amount: grandTotal, 
+                    currency: 'INR'
                 });
-                rzp.open();
+                
+                // Store order and client secret for the modal
+                setCurrentOrder(savedData);
+                setStripeClientSecret(stripeResponse.data.clientSecret);
+                setShowStripeModal(true);
             }
-        }catch(error) {
+        } catch(error) {
             console.error(error);
             toast.error("Payment processing failed");
         } finally {
@@ -129,13 +116,47 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
         }
     }
 
+    const handleStripePaymentSuccess = async (paymentIntent, paymentMethod) => {
+        try {
+            // Verify payment with your backend
+            await verifyPaymentHandler({
+                stripePaymentIntentId: paymentIntent.id,
+                stripePaymentMethodId: paymentMethod.id,
+                clientSecret: stripeClientSecret
+            }, currentOrder);
+            
+            setShowStripeModal(false);
+        } catch (error) {
+            console.error(error);
+            toast.error("Payment verification failed");
+        }
+    };
+
+    const handleStripePaymentError = async (error) => {
+        console.error(error);
+        toast.error(`Payment failed: ${error.message}`);
+        if (currentOrder) {
+            await deleteOrderOnFailure(currentOrder.orderId);
+        }
+        setShowStripeModal(false);
+    };
+
+    const handleStripeModalClose = async () => {
+        if (currentOrder) {
+            await deleteOrderOnFailure(currentOrder.orderId);
+            toast.error("Payment cancelled");
+        }
+        setShowStripeModal(false);
+    };
+
     const verifyPaymentHandler = async (response, savedOrder) => {
         const paymentData = {
-            razorpayOrderId: response.razorpay_order_id,
-            razorpayPaymentId: response.razorpay_payment_id,
-            razorpaySignature: response.razorpay_signature,
+            stripePaymentIntentId: response.stripePaymentIntentId,
+            stripePaymentMethodId: response.stripePaymentMethodId,
+            clientSecret: response.clientSecret,
             orderId: savedOrder.orderId
         };
+        
         try {
             const paymentResponse = await verifyPayment(paymentData);
             if (paymentResponse.status === 200) {
@@ -143,12 +164,13 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
                 setOrderDetails({
                     ...savedOrder,
                     paymentDetails: {
-                        razorpayOrderId: response.razorpay_order_id,
-                        razorpayPaymentId: response.razorpay_payment_id,
-                        razorpaySignature: response.razorpay_signature
+                        stripePaymentIntentId: response.stripePaymentIntentId,
+                        stripePaymentMethodId: response.stripePaymentMethodId,
+                        clientSecret: response.clientSecret,
+                        status: 'COMPLETED'
                     },
                 });
-            }else {
+            } else {
                 toast.error("Payment processing failed");
             }
         } catch (error) {
@@ -196,19 +218,31 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
                     Place Order
                 </button>
             </div>
-            {
-                showPopup && (
-                    <ReceiptPopup
-                        orderDetails={{
-                            ...orderDetails,
-                            razorpayOrderId: orderDetails.paymentDetails?.razorpayOrderId,
-                            razorpayPaymentId: orderDetails.paymentDetails?.razorpayPaymentId,
-                        }}
-                        onClose={() => setShowPopup(false)}
-                        onPrint={handlePrintReceipt}
-                    />
-                )
-            }
+
+            {showStripeModal && (
+                <StripePaymentModal
+                    clientSecret={stripeClientSecret}
+                    customerName={customerName}
+                    mobileNumber={mobileNumber}
+                    amount={grandTotal}
+                    onPaymentSuccess={handleStripePaymentSuccess}
+                    onPaymentError={handleStripePaymentError}
+                    onClose={handleStripeModalClose}
+                />
+            )}
+
+            {showPopup && (
+                <ReceiptPopup
+                    orderDetails={{
+                        ...orderDetails,
+                        stripePaymentIntentId: orderDetails.paymentDetails?.stripePaymentIntentId,
+                        stripePaymentMethodId: orderDetails.paymentDetails?.stripePaymentMethodId,
+                        clientSecret: orderDetails.paymentDetails?.clientSecret,
+                    }}
+                    onClose={() => setShowPopup(false)}
+                    onPrint={handlePrintReceipt}
+                />
+            )}
         </div>
     )
 }
