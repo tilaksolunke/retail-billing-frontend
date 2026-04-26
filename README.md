@@ -1,12 +1,79 @@
-# React + Vite
+# Vendix - Frontend (React)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React.js frontend for Vendix — an AI-powered retail billing software for small shops.
 
-Currently, two official plugins are available:
+> 🔗 Backend Repository: [link to your backend repo here]
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+---
 
-## Expanding the ESLint configuration
+## ✨ Features
+- 🧾 Cart-based billing with printable receipts
+- 📊 Real-time sales dashboard
+- 🤖 AI chatbot widget for business insights
+- 💳 Stripe payment integration
+- 🔐 Role-based UI (Admin & Staff views)
+- 📜 Order history with complete details
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+---
+
+## 🛠️ Tech Stack
+- React.js
+- React Router
+- Axios
+- Bootstrap
+- React Hot Toast
+
+---
+
+## ⚙️ Setup
+
+**1. Clone the repo**
+```bash
+git clone https://github.com/yourusername/vendix-frontend.git
+cd vendix-frontend
+```
+
+**2. Install dependencies**
+```bash
+npm install
+```
+
+**3. Configure backend URL**
+
+Open `src/Util/constants.js` and set your backend URL:
+```javascript
+export const BASE_URL = "http://localhost:8080/api/v1.0";
+```
+
+**4. Run the app**
+```bash
+npm run dev
+```
+Runs at `http://localhost:5173`
+
+---
+
+## 📁 Project Structure
+client/
+├── src/
+│   ├── Components/
+│   │   ├── AiChat/        # AI chatbot widget
+│   │   ├── CartItems/     # Cart management
+│   │   ├── CartSummary/   # Order summary & payment
+│   │   ├── Menubar/       # Navigation
+│   │   └── ReceiptPopup/  # Printable receipt
+│   ├── pages/
+│   │   ├── Dashboard/     # Sales overview
+│   │   ├── Explore/       # Billing & cart
+│   │   ├── ManageItems/   # Product management
+│   │   ├── ManageUsers/   # User management
+│   │   └── OrderHistory/  # Order records
+│   ├── Service/           # API calls
+│   ├── context/           # Global state
+│   └── Util/              # Constants
+
+---
+
+## 🔗 Related
+- Backend Repository: [Vendix Backend](link here)
+- LinkedIn: [Tilak Solunke](https://linkedin.com/in/tilaksolunke)
